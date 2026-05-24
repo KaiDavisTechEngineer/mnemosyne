@@ -33,15 +33,14 @@ Each subclass is intentionally short: they share the heavy lifting
 and just specialize the prompting, temperature, and the introspection
 heuristics.
 """
+
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
 from typing import Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from mnemosyne.agents.base import Agent, AgentConfig, IntrospectionReport
 from mnemosyne.arch.tokenizer import Tokenizer
@@ -54,8 +53,12 @@ from mnemosyne.communication.channel import CommunicationChannel, Message
 class Proposer(Agent):
     """Generates candidate solutions. Tuned for exploration."""
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+    ) -> None:
         cfg.role = "proposer"
         super().__init__(cfg, tokenizer, channel)
         # Sampling temperature for proposal generation. Higher than the
@@ -67,8 +70,9 @@ class Proposer(Agent):
         out: list[str] = []
         prompt = f"{self.tokenizer.role_token('proposer')}<msg>{question}</msg>"
         for _ in range(k):
-            text, _, _ = self.reply(prompt, max_new_tokens=24,
-                                      temperature=self.temperature)
+            text, _, _ = self.reply(
+                prompt, max_new_tokens=24, temperature=self.temperature
+            )
             out.append(text)
         if self.channel:
             for o in out:
@@ -82,8 +86,12 @@ class Proposer(Agent):
 class Critic(Agent):
     """Finds flaws in proposals. Tuned for skeptical analysis."""
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+    ) -> None:
         cfg.role = "critic"
         super().__init__(cfg, tokenizer, channel)
         # Lower temperature — critic should be precise about objections.
@@ -94,14 +102,16 @@ class Critic(Agent):
             f"{self.tokenizer.role_token('critic')}<msg>question: {question} | "
             f"proposal: {proposal}</msg>"
         )
-        text, _, _ = self.reply(prompt, max_new_tokens=24,
-                                  temperature=self.temperature)
+        text, _, _ = self.reply(prompt, max_new_tokens=24, temperature=self.temperature)
         if self.channel:
             self.speak("all", text, metadata={"phase": "critique"})
         return text
 
-    def find_disagreement_features(self, question: str, proposal: str,
-                                     ) -> IntrospectionReport:
+    def find_disagreement_features(
+        self,
+        question: str,
+        proposal: str,
+    ) -> IntrospectionReport:
         """Return an introspection report localized to the features that
         fired most when reading the proposal. Useful for the
         metacognitor to learn what triggers critic objections."""
@@ -119,14 +129,17 @@ class Verifier(Agent):
     """Formal verifier. Mostly mechanical — the neural net only decides
     *what to check*, not the answer."""
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+    ) -> None:
         cfg.role = "verifier"
         super().__init__(cfg, tokenizer, channel)
         self.temperature = 0.0  # deterministic
 
-    def verify(self, question: str, proposal: str,
-                verification_fn=None) -> dict:
+    def verify(self, question: str, proposal: str, verification_fn=None) -> dict:
         """Run formal verification on a proposal.
 
         ``verification_fn`` is a user-supplied callable that takes
@@ -138,13 +151,15 @@ class Verifier(Agent):
         for arithmetic).
         """
         if verification_fn is None:
-            verdict = {"verdict": "unknown",
-                        "reason": "no verification function configured"}
+            verdict = {
+                "verdict": "unknown",
+                "reason": "no verification function configured",
+            }
         else:
             verdict = verification_fn(question, proposal)
-        msg = (f"verdict={verdict['verdict']}"
-               + (f" reason={verdict.get('reason','')}"
-                  if verdict.get('reason') else ""))
+        msg = f"verdict={verdict['verdict']}" + (
+            f" reason={verdict.get('reason', '')}" if verdict.get("reason") else ""
+        )
         if self.channel:
             self.speak("all", msg, metadata={"phase": "verify", **verdict})
         return verdict
@@ -156,28 +171,35 @@ class Verifier(Agent):
 class Synthesizer(Agent):
     """Combines proposals + critiques + verifications into a final answer."""
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+    ) -> None:
         cfg.role = "synthesizer"
         super().__init__(cfg, tokenizer, channel)
         self.temperature = 0.5  # moderate
 
-    def synthesize(self, question: str, proposals: list[str],
-                    critiques: list[str], verifications: list[dict],
-                    ) -> str:
+    def synthesize(
+        self,
+        question: str,
+        proposals: list[str],
+        critiques: list[str],
+        verifications: list[dict],
+    ) -> str:
         ctx_parts = [f"question: {question}"]
         for i, p in enumerate(proposals):
             ctx_parts.append(f"proposal_{i}: {p}")
         for i, c in enumerate(critiques):
             ctx_parts.append(f"critique_{i}: {c}")
         for i, v in enumerate(verifications):
-            ctx_parts.append(f"verify_{i}: {v.get('verdict','?')}")
+            ctx_parts.append(f"verify_{i}: {v.get('verdict', '?')}")
         prompt = (
             f"{self.tokenizer.role_token('synthesizer')}"
             f"<msg>{' | '.join(ctx_parts)}</msg>"
         )
-        text, _, _ = self.reply(prompt, max_new_tokens=32,
-                                  temperature=self.temperature)
+        text, _, _ = self.reply(prompt, max_new_tokens=32, temperature=self.temperature)
         if self.channel:
             self.speak("all", text, metadata={"phase": "synthesize"})
         return text
@@ -195,16 +217,15 @@ class AgentModel(nn.Module):
     message history and outputs a distribution over likely next
     messages — concretely, over a few discrete "behavioral modes."
     """
-    def __init__(self, vocab_size: int, hidden_dim: int = 64,
-                  n_modes: int = 8) -> None:
+
+    def __init__(self, vocab_size: int, hidden_dim: int = 64, n_modes: int = 8) -> None:
         super().__init__()
         self.embed = nn.Embedding(vocab_size, hidden_dim)
         self.gru = nn.GRU(hidden_dim, hidden_dim, batch_first=True)
         self.mode_head = nn.Linear(hidden_dim, n_modes)
         self.confidence_head = nn.Linear(hidden_dim, 1)
 
-    def forward(self, token_ids: torch.Tensor
-                  ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, token_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Returns (mode_logits, predicted_confidence)."""
         x = self.embed(token_ids)
         _, h = self.gru(x)
@@ -224,29 +245,38 @@ class Metacognitor(Agent):
     carefully").
     """
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None,
-                 modeled_agents: Optional[list[str]] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+        modeled_agents: Optional[list[str]] = None,
+    ) -> None:
         cfg.role = "metacognitor"
         super().__init__(cfg, tokenizer, channel)
         self.temperature = 0.3
         self.modeled_agents = list(modeled_agents or [])
         # One small predictive model per agent observed.
-        self.agent_models = nn.ModuleDict({
-            name: AgentModel(tokenizer.vocab_size, hidden_dim=64, n_modes=8)
-            for name in self.modeled_agents
-        })
+        self.agent_models = nn.ModuleDict(
+            {
+                name: AgentModel(tokenizer.vocab_size, hidden_dim=64, n_modes=8)
+                for name in self.modeled_agents
+            }
+        )
 
     def add_modeled_agent(self, agent_name: str) -> None:
         if agent_name in self.agent_models:
             return
         self.agent_models[agent_name] = AgentModel(
-            self.tokenizer.vocab_size, hidden_dim=64, n_modes=8,
+            self.tokenizer.vocab_size,
+            hidden_dim=64,
+            n_modes=8,
         )
         self.modeled_agents.append(agent_name)
 
-    def predict_agent_mode(self, agent_name: str,
-                              recent_messages: list[Message]) -> tuple[int, float]:
+    def predict_agent_mode(
+        self, agent_name: str, recent_messages: list[Message]
+    ) -> tuple[int, float]:
         """Predict which behavioral mode the named agent will be in next.
 
         ``recent_messages`` are the messages from that agent in the
@@ -265,8 +295,9 @@ class Metacognitor(Agent):
             mode_logits, conf = model(ids)
         return int(mode_logits.argmax().item()), float(conf.item())
 
-    def assess_round(self, channel: CommunicationChannel,
-                      verifier_verdicts: list[dict]) -> dict[str, float]:
+    def assess_round(
+        self, channel: CommunicationChannel, verifier_verdicts: list[dict]
+    ) -> dict[str, float]:
         """After a round, score each agent by alignment with verifier outcomes.
 
         Returns a dict mapping ``agent_name -> trust_delta``. The

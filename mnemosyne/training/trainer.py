@@ -31,24 +31,25 @@ stages:
 These stages can be run independently. ``train_all`` runs them in
 sequence with sensible defaults.
 """
+
 from __future__ import annotations
 
 import random
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from mnemosyne.agents.specialists import (
-    Critic, Metacognitor, Proposer, Synthesizer, Verifier,
+    Critic,
+    Metacognitor,
+    Proposer,
+    Synthesizer,
 )
-from mnemosyne.communication.channel import CommunicationChannel
-from mnemosyne.society.orchestrator import DebateConfig, Society
-from mnemosyne.training.tasks import Sample, sample_dataset
+from mnemosyne.society.orchestrator import Society
+from mnemosyne.training.tasks import Sample
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -85,8 +86,9 @@ def _bc_loss_for_agent(agent, prompt: str, target: str) -> torch.Tensor:
     tok = agent.tokenizer
     prompt_ids = tok.encode(prompt)
     target_ids = tok.encode(target + "<eos>")
-    full_ids = torch.tensor([prompt_ids + target_ids],
-                              dtype=torch.long, device=agent._device())
+    full_ids = torch.tensor(
+        [prompt_ids + target_ids], dtype=torch.long, device=agent._device()
+    )
     # Truncate to max_seq_len
     max_len = agent.cfg.transformer_cfg.max_seq_len - 1
     if full_ids.shape[1] > max_len:
@@ -99,21 +101,26 @@ def _bc_loss_for_agent(agent, prompt: str, target: str) -> torch.Tensor:
     if full_ids.shape[1] <= prompt_len:
         return torch.tensor(0.0, device=agent._device(), requires_grad=True)
     # Slice the logits over the target span.
-    logits_slice = logits[0, prompt_len - 1 : -1]   # (T_target, V)
-    target_slice = full_ids[0, prompt_len:]          # (T_target,)
+    logits_slice = logits[0, prompt_len - 1 : -1]  # (T_target, V)
+    target_slice = full_ids[0, prompt_len:]  # (T_target,)
     return F.cross_entropy(logits_slice, target_slice)
 
 
 def warm_start(
-    proposer: Proposer, critic: Critic, synthesizer: Synthesizer,
+    proposer: Proposer,
+    critic: Critic,
+    synthesizer: Synthesizer,
     metacognitor: Metacognitor,
-    samples: list[Sample], cfg: TrainConfig,
+    samples: list[Sample],
+    cfg: TrainConfig,
 ) -> list[float]:
     """Behavioral cloning warmup. Returns the per-epoch average loss."""
-    params = (list(proposer.transformer.parameters())
-              + list(critic.transformer.parameters())
-              + list(synthesizer.transformer.parameters())
-              + list(metacognitor.transformer.parameters()))
+    params = (
+        list(proposer.transformer.parameters())
+        + list(critic.transformer.parameters())
+        + list(synthesizer.transformer.parameters())
+        + list(metacognitor.transformer.parameters())
+    )
     opt = torch.optim.AdamW(params, lr=cfg.lr, weight_decay=cfg.weight_decay)
     losses: list[float] = []
 
@@ -151,15 +158,14 @@ def warm_start(
             n += 1
         avg = epoch_loss / max(n, 1)
         losses.append(avg)
-        print(f"[bc] epoch {epoch+1}/{cfg.bc_epochs}  avg_loss={avg:.4f}")
+        print(f"[bc] epoch {epoch + 1}/{cfg.bc_epochs}  avg_loss={avg:.4f}")
     return losses
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Stage 2 — SAE training on captured activations
 # ─────────────────────────────────────────────────────────────────────
-def train_saes(agents: list, samples: list[Sample], cfg: TrainConfig
-                 ) -> list[float]:
+def train_saes(agents: list, samples: list[Sample], cfg: TrainConfig) -> list[float]:
     """Train every agent's sparse autoencoders on activations captured
     while running the agent's transformer on the sample stream.
 
@@ -174,8 +180,7 @@ def train_saes(agents: list, samples: list[Sample], cfg: TrainConfig
     sae_params = []
     for _, _, sae in all_saes:
         sae_params.extend(sae.parameters())
-    opt = torch.optim.AdamW(sae_params, lr=cfg.sae_lr,
-                              weight_decay=0.0)
+    opt = torch.optim.AdamW(sae_params, lr=cfg.sae_lr, weight_decay=0.0)
     losses: list[float] = []
     log_buffer = deque(maxlen=20)
 
@@ -185,8 +190,9 @@ def train_saes(agents: list, samples: list[Sample], cfg: TrainConfig
         n = 0
         for agent, safe_key, sae in all_saes:
             site = agent._from_safe_key(safe_key)
-            prompt = (f"{agent.tokenizer.role_token(agent.cfg.role)}"
-                      f"<msg>{s.question}</msg>")
+            prompt = (
+                f"{agent.tokenizer.role_token(agent.cfg.role)}<msg>{s.question}</msg>"
+            )
             ids = agent.encode(prompt)
             with torch.no_grad():
                 _, captured = agent.transformer.run_with_capture(ids, sites=[site])
@@ -205,7 +211,7 @@ def train_saes(agents: list, samples: list[Sample], cfg: TrainConfig
         if (step + 1) % cfg.log_every == 0:
             avg = sum(log_buffer) / len(log_buffer)
             losses.append(avg)
-            print(f"[sae] step {step+1:4d}/{cfg.sae_steps}  loss(20)={avg:.4f}")
+            print(f"[sae] step {step + 1:4d}/{cfg.sae_steps}  loss(20)={avg:.4f}")
     return losses
 
 
@@ -224,8 +230,9 @@ def _compute_reward(result, gold_answer: str) -> float:
     return -0.3
 
 
-def society_finetune(society: Society, samples: list[Sample],
-                       cfg: TrainConfig) -> TrainHistory:
+def society_finetune(
+    society: Society, samples: list[Sample], cfg: TrainConfig
+) -> TrainHistory:
     """REINFORCE fine-tuning of the synthesizer.
 
     The synthesizer is the agent whose output directly determines
@@ -240,8 +247,7 @@ def society_finetune(society: Society, samples: list[Sample],
     """
     history = TrainHistory()
     syn_params = list(society.synthesizer.transformer.parameters())
-    opt = torch.optim.AdamW(syn_params, lr=cfg.lr * 0.3,
-                              weight_decay=cfg.weight_decay)
+    opt = torch.optim.AdamW(syn_params, lr=cfg.lr * 0.3, weight_decay=cfg.weight_decay)
     baseline = 0.0
     recent_rewards = deque(maxlen=50)
     recent_solves = deque(maxlen=50)
@@ -267,8 +273,10 @@ def society_finetune(society: Society, samples: list[Sample],
         prompt_parts = [f"question: {s.question}"]
         for i, p in enumerate(last_round.proposals):
             prompt_parts.append(f"proposal_{i}: {p}")
-        prompt = (f"{society.synthesizer.tokenizer.role_token('synthesizer')}"
-                  f"<msg>{' | '.join(prompt_parts)}</msg>")
+        prompt = (
+            f"{society.synthesizer.tokenizer.role_token('synthesizer')}"
+            f"<msg>{' | '.join(prompt_parts)}</msg>"
+        )
         prompt_ids = society.synthesizer.tokenizer.encode(prompt)
         syn_ids = society.synthesizer.tokenizer.encode(syn_text + "<eos>")
         max_len = society.synthesizer.cfg.transformer_cfg.max_seq_len - 1
@@ -279,8 +287,9 @@ def society_finetune(society: Society, samples: list[Sample],
             prompt_len = max(1, len(full) - len(syn_ids))
         else:
             prompt_len = len(prompt_ids)
-        full_t = torch.tensor([full], dtype=torch.long,
-                                device=society.synthesizer._device())
+        full_t = torch.tensor(
+            [full], dtype=torch.long, device=society.synthesizer._device()
+        )
         if full_t.shape[1] <= prompt_len:
             continue
         _, logits = society.synthesizer.transformer(full_t)
@@ -297,30 +306,39 @@ def society_finetune(society: Society, samples: list[Sample],
         loss.backward()
         torch.nn.utils.clip_grad_norm_(syn_params, cfg.grad_clip)
         opt.step()
-        baseline = (cfg.baseline_momentum * baseline
-                     + (1 - cfg.baseline_momentum) * reward)
+        baseline = (
+            cfg.baseline_momentum * baseline + (1 - cfg.baseline_momentum) * reward
+        )
 
         if (ep + 1) % cfg.log_every == 0:
             avg = sum(recent_rewards) / len(recent_rewards)
             sr = sum(recent_solves) / len(recent_solves)
-            print(f"[rl ] ep {ep+1:4d}/{cfg.rl_episodes}  "
-                  f"avg_reward(50)={avg:+.3f}  solve_rate(50)={sr:.1%}  "
-                  f"baseline={baseline:+.3f}")
+            print(
+                f"[rl ] ep {ep + 1:4d}/{cfg.rl_episodes}  "
+                f"avg_reward(50)={avg:+.3f}  solve_rate(50)={sr:.1%}  "
+                f"baseline={baseline:+.3f}"
+            )
     return history
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Top-level orchestrating function
 # ─────────────────────────────────────────────────────────────────────
-def train_all(society: Society, samples: list[Sample], cfg: TrainConfig
-                ) -> TrainHistory:
+def train_all(
+    society: Society, samples: list[Sample], cfg: TrainConfig
+) -> TrainHistory:
     """Run all three training stages in sequence."""
     print("=" * 64)
     print(" Stage 1 — Behavioral cloning warmup ")
     print("=" * 64)
-    bc_losses = warm_start(society.proposer, society.critic,
-                              society.synthesizer, society.metacognitor,
-                              samples, cfg)
+    bc_losses = warm_start(
+        society.proposer,
+        society.critic,
+        society.synthesizer,
+        society.metacognitor,
+        samples,
+        cfg,
+    )
 
     print()
     print("=" * 64)

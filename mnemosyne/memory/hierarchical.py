@@ -31,6 +31,7 @@ Hierarchical memory gives MNEMOSYNE agents a *biography*: a learned
 sense of "what I've seen before, what worked, what didn't" that
 informs new decisions without forcing a 1M-token context window.
 """
+
 from __future__ import annotations
 
 import time
@@ -39,7 +40,6 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import torch
-import torch.nn.functional as F
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -52,6 +52,7 @@ class WorkingMemory:
     The agent reads working memory every forward pass — these are the
     "thoughts I had a moment ago."
     """
+
     capacity: int = 8
     items: deque = field(default_factory=lambda: deque(maxlen=8))
 
@@ -59,14 +60,22 @@ class WorkingMemory:
         if self.items.maxlen != self.capacity:
             self.items = deque(self.items, maxlen=self.capacity)
 
-    def push(self, hidden: torch.Tensor, sparse_code: Optional[torch.Tensor] = None,
-              meta: Optional[dict] = None) -> None:
-        self.items.append({
-            "hidden": hidden.detach().clone(),
-            "sparse_code": sparse_code.detach().clone() if sparse_code is not None else None,
-            "meta": meta or {},
-            "timestamp": time.time(),
-        })
+    def push(
+        self,
+        hidden: torch.Tensor,
+        sparse_code: Optional[torch.Tensor] = None,
+        meta: Optional[dict] = None,
+    ) -> None:
+        self.items.append(
+            {
+                "hidden": hidden.detach().clone(),
+                "sparse_code": sparse_code.detach().clone()
+                if sparse_code is not None
+                else None,
+                "meta": meta or {},
+                "timestamp": time.time(),
+            }
+        )
 
     def hiddens(self) -> torch.Tensor:
         """Return all working-memory hidden states stacked, or empty if none."""
@@ -87,11 +96,12 @@ class WorkingMemory:
 @dataclass
 class Episode:
     """A complete reasoning episode the agent has lived through."""
-    key: torch.Tensor             # pooled summary used for retrieval
+
+    key: torch.Tensor  # pooled summary used for retrieval
     input_text: str
     output_text: str
     feature_signature: Optional[torch.Tensor]  # which SAE features fired most
-    outcome: dict[str, Any]       # outcome metrics ("correct", "verifier_passed", etc.)
+    outcome: dict[str, Any]  # outcome metrics ("correct", "verifier_passed", etc.)
     timestamp: float = field(default_factory=time.time)
     retrieval_count: int = 0
 
@@ -119,17 +129,21 @@ class EpisodicMemory:
         """Add an episode. If at capacity, evict the least-recently-retrieved."""
         if len(self._episodes) >= self.max_episodes:
             # Find least-recently-retrieved episode.
-            evict_idx = min(range(len(self._episodes)),
-                              key=lambda i: (self._episodes[i].retrieval_count,
-                                              self._episodes[i].timestamp))
+            evict_idx = min(
+                range(len(self._episodes)),
+                key=lambda i: (
+                    self._episodes[i].retrieval_count,
+                    self._episodes[i].timestamp,
+                ),
+            )
             self._episodes.pop(evict_idx)
         self._episodes.append(episode)
         self._rebuild_index()
         return len(self._episodes) - 1
 
-    def retrieve(self, query: torch.Tensor, k: int = 4,
-                  similarity_threshold: float = 0.0
-                  ) -> list[tuple[Episode, float]]:
+    def retrieve(
+        self, query: torch.Tensor, k: int = 4, similarity_threshold: float = 0.0
+    ) -> list[tuple[Episode, float]]:
         """Return the top-k most similar episodes by cosine similarity.
 
         Only returns episodes whose similarity exceeds the threshold —
@@ -171,10 +185,11 @@ class Concept:
     of that concept. Concepts have human-readable labels that the
     agent (or a human operator) can edit.
     """
-    centroid: torch.Tensor          # (n_features,) — normalized
-    member_indices: list[int]        # indices into episodic memory
+
+    centroid: torch.Tensor  # (n_features,) — normalized
+    member_indices: list[int]  # indices into episodic memory
     label: str = ""
-    confidence: float = 0.0          # 0..1; coherence of the cluster
+    confidence: float = 0.0  # 0..1; coherence of the cluster
     creation_time: float = field(default_factory=time.time)
 
 
@@ -206,19 +221,29 @@ class SemanticMemory:
         idx = int(sims.argmax().item())
         return idx, float(sims[idx].item())
 
-    def add_concept(self, centroid: torch.Tensor, members: list[int],
-                     label: str = "", confidence: float = 0.0) -> int:
+    def add_concept(
+        self,
+        centroid: torch.Tensor,
+        members: list[int],
+        label: str = "",
+        confidence: float = 0.0,
+    ) -> int:
         if len(self._concepts) >= self.max_concepts:
             # Evict the lowest-confidence concept.
-            evict_idx = min(range(len(self._concepts)),
-                              key=lambda i: self._concepts[i].confidence)
+            evict_idx = min(
+                range(len(self._concepts)), key=lambda i: self._concepts[i].confidence
+            )
             self._concepts.pop(evict_idx)
         c = centroid.detach().clone()
         c = c / (c.norm() + 1e-8)
-        self._concepts.append(Concept(
-            centroid=c, member_indices=list(members),
-            label=label, confidence=confidence,
-        ))
+        self._concepts.append(
+            Concept(
+                centroid=c,
+                member_indices=list(members),
+                label=label,
+                confidence=confidence,
+            )
+        )
         return len(self._concepts) - 1
 
     def relabel(self, concept_idx: int, label: str) -> None:
@@ -271,7 +296,7 @@ def consolidate(
 
     for _ in range(n_iters):
         # Assign each point to nearest centroid.
-        sims = X @ centroids.T   # (N, k)
+        sims = X @ centroids.T  # (N, k)
         assign = sims.argmax(dim=-1)
         # Recompute centroids.
         new_centroids = torch.zeros_like(centroids)
@@ -284,7 +309,9 @@ def consolidate(
             else:
                 # Re-initialize empty cluster to a random point.
                 new_centroids[ci] = X[torch.randint(0, X.shape[0], (1,)).item()]
-        new_centroids = new_centroids / (new_centroids.norm(dim=-1, keepdim=True) + 1e-8)
+        new_centroids = new_centroids / (
+            new_centroids.norm(dim=-1, keepdim=True) + 1e-8
+        )
         if torch.allclose(new_centroids, centroids, atol=1e-4):
             centroids = new_centroids
             break
@@ -301,10 +328,10 @@ def consolidate(
         members = [valid_indices[i] for i, m in enumerate(mask.tolist()) if m]
         # Confidence: within-cluster similarity.
         in_cluster = X[mask]
-        conf = float(((in_cluster @ centroids[ci])).mean().item())
-        semantic.add_concept(centroids[ci], members,
-                              label=f"concept_{len(semantic)}",
-                              confidence=conf)
+        conf = float((in_cluster @ centroids[ci]).mean().item())
+        semantic.add_concept(
+            centroids[ci], members, label=f"concept_{len(semantic)}", confidence=conf
+        )
         n_added += 1
     return n_added
 
@@ -315,15 +342,20 @@ def consolidate(
 @dataclass
 class AgentMemory:
     """The complete memory stack an agent carries."""
+
     working: WorkingMemory
     episodic: EpisodicMemory
     semantic: SemanticMemory
 
     @classmethod
-    def build(cls, hidden_dim: int, n_features: int,
-              working_capacity: int = 8,
-              max_episodes: int = 4096,
-              max_concepts: int = 64) -> "AgentMemory":
+    def build(
+        cls,
+        hidden_dim: int,
+        n_features: int,
+        working_capacity: int = 8,
+        max_episodes: int = 4096,
+        max_concepts: int = 64,
+    ) -> "AgentMemory":
         return cls(
             working=WorkingMemory(capacity=working_capacity),
             episodic=EpisodicMemory(dim=hidden_dim, max_episodes=max_episodes),

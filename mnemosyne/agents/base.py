@@ -25,9 +25,9 @@ the agent's normal operating mode, exposed through the same interface
 as text generation. The intent is to make introspection cheap enough
 that the agent can use it *during reasoning* rather than only after.
 """
+
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -37,10 +37,13 @@ import torch.nn.functional as F
 
 from mnemosyne.arch.tokenizer import Tokenizer
 from mnemosyne.arch.transformer import (
-    HookContext, HookedTransformer, TransformerConfig, hooks,
+    HookedTransformer,
+    TransformerConfig,
 )
 from mnemosyne.causal.interventions import (
-    Counterfactual, FeatureAttribution, feature_attribution,
+    Counterfactual,
+    FeatureAttribution,
+    feature_attribution,
     find_counterfactual,
 )
 from mnemosyne.communication.channel import CommunicationChannel, Message
@@ -51,6 +54,7 @@ from mnemosyne.memory.hierarchical import AgentMemory, Episode
 @dataclass
 class AgentConfig:
     """Configuration for a single agent."""
+
     name: str
     role: str
     transformer_cfg: TransformerConfig = field(default_factory=TransformerConfig)
@@ -75,6 +79,7 @@ class AgentConfig:
 @dataclass
 class IntrospectionReport:
     """Structured output of an introspection call."""
+
     target_token: int
     site: str
     top_features: list[FeatureAttribution]
@@ -84,10 +89,12 @@ class IntrospectionReport:
     summary: str = ""
 
     def __repr__(self) -> str:
-        return (f"IntrospectionReport(token={self.target_token}, "
-                f"site={self.site!r}, "
-                f"{len(self.top_features)} features, "
-                f"counterfactual={'yes' if self.counterfactual else 'no'})")
+        return (
+            f"IntrospectionReport(token={self.target_token}, "
+            f"site={self.site!r}, "
+            f"{len(self.top_features)} features, "
+            f"counterfactual={'yes' if self.counterfactual else 'no'})"
+        )
 
 
 class Agent(nn.Module):
@@ -99,8 +106,12 @@ class Agent(nn.Module):
     of them: forward pass, introspection, memory access, communication.
     """
 
-    def __init__(self, cfg: AgentConfig, tokenizer: Tokenizer,
-                 channel: Optional[CommunicationChannel] = None) -> None:
+    def __init__(
+        self,
+        cfg: AgentConfig,
+        tokenizer: Tokenizer,
+        channel: Optional[CommunicationChannel] = None,
+    ) -> None:
         super().__init__()
         self.cfg = cfg
         self.tokenizer = tokenizer
@@ -109,17 +120,18 @@ class Agent(nn.Module):
         # Make sure transformer's vocab matches the tokenizer.
         if cfg.transformer_cfg.vocab_size != tokenizer.vocab_size:
             cfg.transformer_cfg = TransformerConfig(
-                **{**cfg.transformer_cfg.__dict__,
-                   "vocab_size": tokenizer.vocab_size},
+                **{**cfg.transformer_cfg.__dict__, "vocab_size": tokenizer.vocab_size},
             )
         self.transformer = HookedTransformer(cfg.transformer_cfg)
 
         # One SAE per introspectable site. Stored as a ModuleDict for
         # easy state-dict handling.
-        self.saes = nn.ModuleDict({
-            self._safe_key(site): TopKSAE(cfg.sae_cfg)
-            for site in cfg.introspection_sites
-        })
+        self.saes = nn.ModuleDict(
+            {
+                self._safe_key(site): TopKSAE(cfg.sae_cfg)
+                for site in cfg.introspection_sites
+            }
+        )
 
         # Memory.
         self.memory = AgentMemory.build(
@@ -137,11 +149,13 @@ class Agent(nn.Module):
 
         # A learned projection from final hidden state into the latent
         # communication bandwidth. Initialized to identity for stability.
-        self.send_head = nn.Linear(cfg.transformer_cfg.hidden_dim,
-                                     cfg.transformer_cfg.hidden_dim, bias=False)
+        self.send_head = nn.Linear(
+            cfg.transformer_cfg.hidden_dim, cfg.transformer_cfg.hidden_dim, bias=False
+        )
         nn.init.eye_(self.send_head.weight)
-        self.recv_head = nn.Linear(cfg.transformer_cfg.hidden_dim,
-                                     cfg.transformer_cfg.hidden_dim, bias=False)
+        self.recv_head = nn.Linear(
+            cfg.transformer_cfg.hidden_dim, cfg.transformer_cfg.hidden_dim, bias=False
+        )
         nn.init.eye_(self.recv_head.weight)
 
     # ──────────────────────────────────────────────────────────────────
@@ -166,16 +180,21 @@ class Agent(nn.Module):
     def _device(self) -> torch.device:
         return next(self.parameters()).device
 
-    def forward(self, token_ids: torch.Tensor
-                  ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    def forward(
+        self, token_ids: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Run the transformer; capture activations at all introspection sites."""
         sites = list(self.cfg.introspection_sites)
         logits, captured = self.transformer.run_with_capture(token_ids, sites=sites)
         return logits, captured
 
-    def reply(self, text: str, max_new_tokens: int = 32,
-                temperature: float = 0.0, log_to_working: bool = True
-                ) -> tuple[str, torch.Tensor, dict[str, torch.Tensor]]:
+    def reply(
+        self,
+        text: str,
+        max_new_tokens: int = 32,
+        temperature: float = 0.0,
+        log_to_working: bool = True,
+    ) -> tuple[str, torch.Tensor, dict[str, torch.Tensor]]:
         """Generate a response in token space.
 
         Returns ``(text, final_logits, final_captured_activations)``.
@@ -194,8 +213,7 @@ class Agent(nn.Module):
             else:
                 probs = F.softmax(next_logits, dim=-1)
                 next_id = int(torch.multinomial(probs, 1).item())
-            ids = torch.cat([ids, torch.tensor([[next_id]], device=ids.device)],
-                              dim=-1)
+            ids = torch.cat([ids, torch.tensor([[next_id]], device=ids.device)], dim=-1)
             if next_id == self.tokenizer.special_id("<eos>"):
                 break
         # Final capture for introspection.
@@ -206,18 +224,22 @@ class Agent(nn.Module):
             hidden = captured[site][0, -1]
             sae = self.saes[self._safe_key(site)]
             z = sae.encode(hidden.unsqueeze(0)).squeeze(0)
-            self.memory.working.push(hidden, sparse_code=z,
-                                      meta={"text_in": text, "text_out": out_text})
+            self.memory.working.push(
+                hidden, sparse_code=z, meta={"text_in": text, "text_out": out_text}
+            )
         return out_text, final_logits, captured
 
     # ──────────────────────────────────────────────────────────────────
     # Introspection
     # ──────────────────────────────────────────────────────────────────
-    def introspect(self, token_ids: torch.Tensor,
-                   site: Optional[str] = None,
-                   target_token: Optional[int] = None,
-                   compute_counterfactual: bool = True,
-                   top_n: int = 6) -> IntrospectionReport:
+    def introspect(
+        self,
+        token_ids: torch.Tensor,
+        site: Optional[str] = None,
+        target_token: Optional[int] = None,
+        compute_counterfactual: bool = True,
+        top_n: int = 6,
+    ) -> IntrospectionReport:
         """The canonical "why did I say that?" call.
 
         Runs feature attribution at ``site`` (default: the first
@@ -231,8 +253,14 @@ class Agent(nn.Module):
         if target_token is None:
             target_token = int(logits[0, -1].argmax().item())
 
-        top = feature_attribution(self.transformer, sae, site,
-                                    token_ids, target_token=target_token, top_n=top_n)
+        top = feature_attribution(
+            self.transformer,
+            sae,
+            site,
+            token_ids,
+            target_token=target_token,
+            top_n=top_n,
+        )
         cf = None
         if compute_counterfactual:
             cf = find_counterfactual(self.transformer, sae, site, token_ids)
@@ -240,8 +268,9 @@ class Agent(nn.Module):
         # Episodic recall.
         sites_captured = self.transformer.run_with_capture(token_ids, sites=[site])[1]
         query_key = sites_captured[site][0, -1]  # last-token hidden
-        matches = self.memory.episodic.retrieve(query_key, k=1,
-                                                  similarity_threshold=0.3)
+        matches = self.memory.episodic.retrieve(
+            query_key, k=1, similarity_threshold=0.3
+        )
         ep_idx = None
         if matches:
             ep = matches[0][0]
@@ -256,8 +285,10 @@ class Agent(nn.Module):
 
         summary = self._format_introspection_summary(top, cf, concept_label)
         return IntrospectionReport(
-            target_token=target_token, site=site,
-            top_features=top, counterfactual=cf,
+            target_token=target_token,
+            site=site,
+            top_features=top,
+            counterfactual=cf,
             most_similar_episode_id=ep_idx,
             matched_concept_label=concept_label,
             summary=summary,
@@ -273,8 +304,10 @@ class Agent(nn.Module):
         if top:
             lines.append("  top features causing this answer:")
             for f in top[:5]:
-                lines.append(f"    feature_{f.feature_idx:>3d}  "
-                              f"act={f.activation:+.3f}  Δlogit={f.delta_logit:+.3f}")
+                lines.append(
+                    f"    feature_{f.feature_idx:>3d}  "
+                    f"act={f.activation:+.3f}  Δlogit={f.delta_logit:+.3f}"
+                )
         if cf:
             lines.append(
                 f"  counterfactual: ablating features {cf.ablated_features} "
@@ -282,8 +315,10 @@ class Agent(nn.Module):
                 f"({cf.original_token} → {cf.counterfactual_token})"
             )
         else:
-            lines.append("  counterfactual: no flip found within budget — "
-                          "answer was robustly determined")
+            lines.append(
+                "  counterfactual: no flip found within budget — "
+                "answer was robustly determined"
+            )
         if concept_label:
             lines.append(f"  closest semantic concept: {concept_label!r}")
         return "\n".join(lines)
@@ -291,8 +326,13 @@ class Agent(nn.Module):
     # ──────────────────────────────────────────────────────────────────
     # Memory operations
     # ──────────────────────────────────────────────────────────────────
-    def remember(self, input_text: str, output_text: str,
-                  outcome: dict, captured: dict[str, torch.Tensor]) -> int:
+    def remember(
+        self,
+        input_text: str,
+        output_text: str,
+        outcome: dict,
+        captured: dict[str, torch.Tensor],
+    ) -> int:
         """Store this interaction as an episode."""
         # Use the first introspection site's last-token activation as the key.
         site = self.cfg.introspection_sites[0]
@@ -319,14 +359,18 @@ class Agent(nn.Module):
     # ──────────────────────────────────────────────────────────────────
     # Communication
     # ──────────────────────────────────────────────────────────────────
-    def speak(self, recipient: str, text: str,
-                latent: Optional[torch.Tensor] = None,
-                metadata: Optional[dict] = None) -> Optional[Message]:
+    def speak(
+        self,
+        recipient: str,
+        text: str,
+        latent: Optional[torch.Tensor] = None,
+        metadata: Optional[dict] = None,
+    ) -> Optional[Message]:
         if self.channel is None:
             return None
-        return self.channel.send(self.cfg.name, recipient,
-                                  token_text=text, latent=latent,
-                                  metadata=metadata)
+        return self.channel.send(
+            self.cfg.name, recipient, token_text=text, latent=latent, metadata=metadata
+        )
 
     def listen(self) -> list[Message]:
         if self.channel is None:

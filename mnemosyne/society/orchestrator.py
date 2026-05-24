@@ -38,16 +38,20 @@ Design notes
   report, and the metacognitor's assessment. Downstream code (eval,
   visualization, distillation) consumes this object directly.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-import torch
 
-from mnemosyne.agents.base import Agent, IntrospectionReport
+from mnemosyne.agents.base import IntrospectionReport
 from mnemosyne.agents.specialists import (
-    Critic, Metacognitor, Proposer, Synthesizer, Verifier,
+    Critic,
+    Metacognitor,
+    Proposer,
+    Synthesizer,
+    Verifier,
 )
 from mnemosyne.communication.channel import CommunicationChannel
 
@@ -55,16 +59,18 @@ from mnemosyne.communication.channel import CommunicationChannel
 @dataclass
 class DebateConfig:
     """How the orchestrator runs a debate."""
+
     max_rounds: int = 3
     proposals_per_round: int = 2
     halt_on_verified_ok: bool = True
-    consolidate_every: int = 5    # rounds between memory consolidations
+    consolidate_every: int = 5  # rounds between memory consolidations
     enable_introspection: bool = True
 
 
 @dataclass
 class RoundOutcome:
     """One round of the debate."""
+
     round_idx: int
     question: str
     proposals: list[str]
@@ -78,22 +84,25 @@ class RoundOutcome:
 @dataclass
 class DebateResult:
     """The complete record of a multi-round debate."""
+
     question: str
     final_answer: str
     rounds: list[RoundOutcome]
-    transcript: list           # the full channel transcript
+    transcript: list  # the full channel transcript
     halted_reason: str
     succeeded: bool
 
     def __repr__(self) -> str:
-        return (f"DebateResult(rounds={len(self.rounds)}, "
-                f"succeeded={self.succeeded}, "
-                f"final_answer={self.final_answer!r}, "
-                f"halted={self.halted_reason!r})")
+        return (
+            f"DebateResult(rounds={len(self.rounds)}, "
+            f"succeeded={self.succeeded}, "
+            f"final_answer={self.final_answer!r}, "
+            f"halted={self.halted_reason!r})"
+        )
 
     def render(self) -> str:
         """Human-readable summary of the debate."""
-        lines = [f"╔═══ MNEMOSYNE debate ═══════════════════════════════════════════"]
+        lines = ["╔═══ MNEMOSYNE debate ═══════════════════════════════════════════"]
         lines.append(f"║ Question: {self.question}")
         lines.append(f"║ Rounds: {len(self.rounds)}, halted: {self.halted_reason}")
         lines.append(f"║ Final answer: {self.final_answer}")
@@ -105,27 +114,33 @@ class DebateResult:
             for i, c in enumerate(r.critiques):
                 lines.append(f"║   critic:      [{i}] {c[:90]}")
             for i, v in enumerate(r.verifications):
-                lines.append(f"║   verifier:    [{i}] {v.get('verdict','?')} "
-                              f"{v.get('reason','')[:60]}")
+                lines.append(
+                    f"║   verifier:    [{i}] {v.get('verdict', '?')} "
+                    f"{v.get('reason', '')[:60]}"
+                )
             lines.append(f"║   synthesizer: {r.synthesis[:90]}")
             if r.metacog_assessment:
-                deltas = ", ".join(f"{k}={v:+.2f}" for k, v in r.metacog_assessment.items())
+                deltas = ", ".join(
+                    f"{k}={v:+.2f}" for k, v in r.metacog_assessment.items()
+                )
                 lines.append(f"║   metacog Δ:   {deltas}")
-        lines.append(f"╚══════════════════════════════════════════════════════════════")
+        lines.append("╚══════════════════════════════════════════════════════════════")
         return "\n".join(lines)
 
 
 class Society:
     """A society of MNEMOSYNE agents running a multi-round reasoning debate."""
 
-    def __init__(self,
-                  proposer: Proposer,
-                  critic: Critic,
-                  verifier: Verifier,
-                  synthesizer: Synthesizer,
-                  metacognitor: Metacognitor,
-                  channel: CommunicationChannel,
-                  cfg: Optional[DebateConfig] = None) -> None:
+    def __init__(
+        self,
+        proposer: Proposer,
+        critic: Critic,
+        verifier: Verifier,
+        synthesizer: Synthesizer,
+        metacognitor: Metacognitor,
+        channel: CommunicationChannel,
+        cfg: Optional[DebateConfig] = None,
+    ) -> None:
         self.proposer = proposer
         self.critic = critic
         self.verifier = verifier
@@ -136,14 +151,19 @@ class Society:
         self.total_rounds_seen = 0
 
         # Ensure metacognitor knows about all the agents.
-        for name in (proposer.cfg.name, critic.cfg.name,
-                     verifier.cfg.name, synthesizer.cfg.name):
+        for name in (
+            proposer.cfg.name,
+            critic.cfg.name,
+            verifier.cfg.name,
+            synthesizer.cfg.name,
+        ):
             metacognitor.add_modeled_agent(name)
 
-    def debate(self,
-                question: str,
-                verification_fn: Optional[Callable] = None,
-                ) -> DebateResult:
+    def debate(
+        self,
+        question: str,
+        verification_fn: Optional[Callable] = None,
+    ) -> DebateResult:
         """Run a multi-round debate on ``question``. Returns the full result."""
         rounds: list[RoundOutcome] = []
         final_answer = ""
@@ -156,7 +176,8 @@ class Society:
 
             # ── 1. Propose ────────────────────────────────────────
             proposals = self.proposer.propose(
-                current_question, k=self.cfg.proposals_per_round,
+                current_question,
+                k=self.cfg.proposals_per_round,
             )
 
             # ── 2. Critique ───────────────────────────────────────
@@ -167,13 +188,17 @@ class Society:
             # ── 3. Verify ─────────────────────────────────────────
             verifications: list[dict] = []
             for p in proposals:
-                v = self.verifier.verify(current_question, p,
-                                           verification_fn=verification_fn)
+                v = self.verifier.verify(
+                    current_question, p, verification_fn=verification_fn
+                )
                 verifications.append(v)
 
             # ── 4. Synthesize ─────────────────────────────────────
             synthesis = self.synthesizer.synthesize(
-                current_question, proposals, critiques, verifications,
+                current_question,
+                proposals,
+                critiques,
+                verifications,
             )
 
             # ── 5. Meta-assess ────────────────────────────────────
@@ -181,7 +206,9 @@ class Society:
             for agent_name, delta in deltas.items():
                 # Update trust from the synthesizer's perspective.
                 self.channel.update_trust(
-                    self.synthesizer.cfg.name, agent_name, delta,
+                    self.synthesizer.cfg.name,
+                    agent_name,
+                    delta,
                 )
 
             # ── 6. Introspect (optional) ──────────────────────────
@@ -190,30 +217,34 @@ class Society:
                 # Each role-active agent introspects on its own output.
                 if proposals:
                     ids = self.proposer.encode(proposals[0])
-                    introspections[self.proposer.cfg.name] = (
-                        self.proposer.introspect(ids, compute_counterfactual=False, top_n=4)
+                    introspections[self.proposer.cfg.name] = self.proposer.introspect(
+                        ids, compute_counterfactual=False, top_n=4
                     )
                 if critiques:
                     ids = self.critic.encode(critiques[0])
-                    introspections[self.critic.cfg.name] = (
-                        self.critic.introspect(ids, compute_counterfactual=False, top_n=4)
+                    introspections[self.critic.cfg.name] = self.critic.introspect(
+                        ids, compute_counterfactual=False, top_n=4
                     )
                 if synthesis:
                     ids = self.synthesizer.encode(synthesis)
                     introspections[self.synthesizer.cfg.name] = (
-                        self.synthesizer.introspect(ids, compute_counterfactual=False, top_n=4)
+                        self.synthesizer.introspect(
+                            ids, compute_counterfactual=False, top_n=4
+                        )
                     )
 
-            rounds.append(RoundOutcome(
-                round_idx=round_idx,
-                question=current_question,
-                proposals=proposals,
-                critiques=critiques,
-                verifications=verifications,
-                synthesis=synthesis,
-                metacog_assessment=deltas,
-                introspections=introspections,
-            ))
+            rounds.append(
+                RoundOutcome(
+                    round_idx=round_idx,
+                    question=current_question,
+                    proposals=proposals,
+                    critiques=critiques,
+                    verifications=verifications,
+                    synthesis=synthesis,
+                    metacog_assessment=deltas,
+                    introspections=introspections,
+                )
+            )
             final_answer = synthesis
             self.total_rounds_seen += 1
 
@@ -225,17 +256,22 @@ class Society:
                 break
             # Otherwise: iterate.
             current_question = (
-                f"{question}\nprevious synthesis: {synthesis}\n"
-                f"refine the answer."
+                f"{question}\nprevious synthesis: {synthesis}\nrefine the answer."
             )
 
         # Consolidate memory every N rounds.
-        if (self.total_rounds_seen > 0
-                and self.total_rounds_seen % self.cfg.consolidate_every == 0):
-            for agent in (self.proposer, self.critic, self.verifier,
-                           self.synthesizer, self.metacognitor):
-                agent.memory.consolidate(n_clusters=4, n_iters=10,
-                                          min_cluster_size=2)
+        if (
+            self.total_rounds_seen > 0
+            and self.total_rounds_seen % self.cfg.consolidate_every == 0
+        ):
+            for agent in (
+                self.proposer,
+                self.critic,
+                self.verifier,
+                self.synthesizer,
+                self.metacognitor,
+            ):
+                agent.memory.consolidate(n_clusters=4, n_iters=10, min_cluster_size=2)
 
         return DebateResult(
             question=question,
@@ -251,11 +287,18 @@ class Society:
     # ──────────────────────────────────────────────────────────────────
     def remember_debate(self, result: DebateResult) -> None:
         """Store the debate as an episode in each agent's memory."""
-        outcome = {"succeeded": result.succeeded,
-                    "n_rounds": len(result.rounds),
-                    "halted_reason": result.halted_reason}
-        for agent in (self.proposer, self.critic, self.verifier,
-                       self.synthesizer, self.metacognitor):
+        outcome = {
+            "succeeded": result.succeeded,
+            "n_rounds": len(result.rounds),
+            "halted_reason": result.halted_reason,
+        }
+        for agent in (
+            self.proposer,
+            self.critic,
+            self.verifier,
+            self.synthesizer,
+            self.metacognitor,
+        ):
             ids = agent.encode(result.question)
             _, captured = agent.forward(ids)
             agent.remember(

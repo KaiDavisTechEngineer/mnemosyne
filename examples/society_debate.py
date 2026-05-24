@@ -11,6 +11,7 @@ What it demonstrates:
   5. Asking the proposer to introspect on its own answer — top features,
      counterfactual, episodic match
 """
+
 from __future__ import annotations
 
 import random
@@ -18,15 +19,28 @@ import random
 import torch
 
 from mnemosyne import (
-    AgentConfig, Critic, CommunicationChannel, DebateConfig,
-    Metacognitor, Proposer, SAEConfig, Society, Synthesizer,
-    Tokenizer, TrainConfig, TransformerConfig, Verifier,
-    evaluate_society, sample_dataset, train_all,
+    AgentConfig,
+    Critic,
+    CommunicationChannel,
+    DebateConfig,
+    Metacognitor,
+    Proposer,
+    SAEConfig,
+    Society,
+    Synthesizer,
+    Tokenizer,
+    TrainConfig,
+    TransformerConfig,
+    Verifier,
+    evaluate_society,
+    sample_dataset,
+    train_all,
 )
 
 
 def main() -> None:
-    torch.manual_seed(0); random.seed(0)
+    torch.manual_seed(0)
+    random.seed(0)
     tok = Tokenizer.build()
     channel = CommunicationChannel()
 
@@ -36,10 +50,15 @@ def main() -> None:
 
     def cfg(name: str) -> AgentConfig:
         return AgentConfig(
-            name=name, role=name,
+            name=name,
+            role=name,
             transformer_cfg=TransformerConfig(
-                vocab_size=tok.vocab_size, hidden_dim=HIDDEN,
-                n_layers=N_LAYERS, n_heads=4, n_kv_heads=2, max_seq_len=1024,
+                vocab_size=tok.vocab_size,
+                hidden_dim=HIDDEN,
+                n_layers=N_LAYERS,
+                n_heads=4,
+                n_kv_heads=2,
+                max_seq_len=1024,
             ),
             sae_cfg=SAEConfig(d_model=HIDDEN, n_features=64, k=4),
             introspection_sites=(site,),
@@ -50,18 +69,26 @@ def main() -> None:
     verifier = Verifier(cfg("verifier"), tok, channel)
     synth = Synthesizer(cfg("synth"), tok, channel)
     meta = Metacognitor(
-        cfg("meta"), tok, channel,
+        cfg("meta"),
+        tok,
+        channel,
         modeled_agents=["proposer", "critic", "verifier", "synth"],
     )
 
-    n_params = sum(sum(p.numel() for p in a.parameters())
-                    for a in (proposer, critic, verifier, synth, meta))
+    n_params = sum(
+        sum(p.numel() for p in a.parameters())
+        for a in (proposer, critic, verifier, synth, meta)
+    )
     print(f"society total params: {n_params:,}")
 
     society = Society(
-        proposer, critic, verifier, synth, meta, channel,
-        DebateConfig(max_rounds=2, proposals_per_round=1,
-                      enable_introspection=False),
+        proposer,
+        critic,
+        verifier,
+        synth,
+        meta,
+        channel,
+        DebateConfig(max_rounds=2, proposals_per_round=1, enable_introspection=False),
     )
 
     train = sample_dataset(n=24, seed=1, difficulty_range=(1, 2))
@@ -72,7 +99,10 @@ def main() -> None:
     print()
 
     cfg_train = TrainConfig(
-        bc_epochs=3, sae_steps=120, rl_episodes=40, log_every=10,
+        bc_epochs=3,
+        sae_steps=120,
+        rl_episodes=40,
+        log_every=10,
     )
     train_all(society, train, cfg_train)
 

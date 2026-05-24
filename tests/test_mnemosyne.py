@@ -12,6 +12,7 @@ Coverage:
 * Training pipeline — BC/SAE/RL stages run without crashing
 * Evaluation — report structure is sensible
 """
+
 from __future__ import annotations
 
 import random
@@ -21,29 +22,40 @@ import torch
 
 from mnemosyne.agents.base import Agent, AgentConfig
 from mnemosyne.agents.specialists import (
-    Critic, Metacognitor, Proposer, Synthesizer, Verifier,
+    Critic,
+    Metacognitor,
+    Proposer,
+    Synthesizer,
+    Verifier,
 )
 from mnemosyne.arch.tokenizer import Tokenizer
 from mnemosyne.arch.transformer import (
-    HookContext, HookedTransformer, TransformerConfig, hooks,
+    HookedTransformer,
+    TransformerConfig,
 )
 from mnemosyne.causal.interventions import (
-    activation_patch, feature_attribution, find_counterfactual,
+    activation_patch,
+    feature_attribution,
 )
 from mnemosyne.communication.channel import CommunicationChannel
-from mnemosyne.eval.benchmark import evaluate_society
 from mnemosyne.interp.sae import SAEConfig, TopKSAE
 from mnemosyne.memory.hierarchical import (
-    AgentMemory, Episode, EpisodicMemory, SemanticMemory, WorkingMemory,
+    Episode,
+    EpisodicMemory,
+    SemanticMemory,
+    WorkingMemory,
     consolidate,
 )
 from mnemosyne.self_model.introspect import SelfModel, SelfModelConfig
 from mnemosyne.society.orchestrator import DebateConfig, Society
 from mnemosyne.training.tasks import (
-    sample_dataset, sample_task, task_boolean, task_comparison, task_ordering,
+    sample_dataset,
+    task_ordering,
 )
 from mnemosyne.training.trainer import (
-    TrainConfig, society_finetune, train_saes, warm_start,
+    TrainConfig,
+    train_saes,
+    warm_start,
 )
 
 
@@ -59,13 +71,18 @@ def channel():
 
 def _agent_cfg(name, tok, hidden=32, n_layers=2):
     return AgentConfig(
-        name=name, role=name,
+        name=name,
+        role=name,
         transformer_cfg=TransformerConfig(
-            vocab_size=tok.vocab_size, hidden_dim=hidden,
-            n_layers=n_layers, n_heads=4, n_kv_heads=2, max_seq_len=512,
+            vocab_size=tok.vocab_size,
+            hidden_dim=hidden,
+            n_layers=n_layers,
+            n_heads=4,
+            n_kv_heads=2,
+            max_seq_len=512,
         ),
         sae_cfg=SAEConfig(d_model=hidden, n_features=32, k=3),
-        introspection_sites=(f"block_{n_layers-1}.resid_post",),
+        introspection_sites=(f"block_{n_layers - 1}.resid_post",),
     )
 
 
@@ -94,9 +111,14 @@ class TestTokenizer:
 # ─────────────────────────────────────────────────────────────────────
 class TestTransformer:
     def test_forward_shapes(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=2, n_heads=4, n_kv_heads=2,
-                                  max_seq_len=256)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=2,
+            n_heads=4,
+            n_kv_heads=2,
+            max_seq_len=256,
+        )
         m = HookedTransformer(cfg)
         x = torch.tensor([[1, 2, 3, 4, 5]])
         hidden, logits = m(x)
@@ -104,8 +126,13 @@ class TestTransformer:
         assert logits.shape == (1, 5, tok.vocab_size)
 
     def test_capture(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=2, n_heads=4, n_kv_heads=2)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=2,
+            n_heads=4,
+            n_kv_heads=2,
+        )
         m = HookedTransformer(cfg)
         x = torch.tensor([[1, 2, 3, 4, 5]])
         logits, captured = m.run_with_capture(x, sites=["block_1.resid_post"])
@@ -113,20 +140,28 @@ class TestTransformer:
         assert captured["block_1.resid_post"].shape == (1, 5, 32)
 
     def test_intervention_changes_logits(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=2, n_heads=4, n_kv_heads=2)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=2,
+            n_heads=4,
+            n_kv_heads=2,
+        )
         m = HookedTransformer(cfg)
         x = torch.tensor([[1, 2, 3, 4, 5]])
         _, base_logits = m(x)
         zeros = torch.zeros(1, 5, 32)
-        patched_logits, _ = m.run_with_intervention(
-            x, {"block_0.resid_post": zeros}
-        )
+        patched_logits, _ = m.run_with_intervention(x, {"block_0.resid_post": zeros})
         assert not torch.allclose(base_logits, patched_logits)
 
     def test_site_names_complete(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=3, n_heads=4, n_kv_heads=2)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=3,
+            n_heads=4,
+            n_kv_heads=2,
+        )
         m = HookedTransformer(cfg)
         names = m.site_names()
         # 3 blocks × 11 sites + embed + final_norm + logits = 36
@@ -151,14 +186,17 @@ class TestSAE:
         sae = TopKSAE(SAEConfig(d_model=16, n_features=32, k=4))
         opt = torch.optim.AdamW(sae.parameters(), lr=1e-3)
         # Make low-rank data.
-        dirs = torch.randn(8, 16); dirs = dirs / dirs.norm(dim=-1, keepdim=True)
+        dirs = torch.randn(8, 16)
+        dirs = dirs / dirs.norm(dim=-1, keepdim=True)
         first_loss = None
         last_loss = None
         for step in range(50):
             w = torch.randn(64, 8).softmax(-1)
             a = w @ dirs + 0.01 * torch.randn(64, 16)
             loss, info = sae.loss(a)
-            opt.zero_grad(); loss.backward(); opt.step()
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
             sae.normalize_decoder()
             if step == 0:
                 first_loss = info["recon_loss"]
@@ -179,8 +217,13 @@ class TestSAE:
 # ─────────────────────────────────────────────────────────────────────
 class TestInterventions:
     def test_activation_patch_returns_score(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=2, n_heads=4, n_kv_heads=2)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=2,
+            n_heads=4,
+            n_kv_heads=2,
+        )
         m = HookedTransformer(cfg)
         clean = torch.tensor([[1, 2, 3, 4, 5]])
         corrupted = torch.tensor([[5, 4, 3, 2, 1]])
@@ -188,13 +231,19 @@ class TestInterventions:
         assert isinstance(score, float)
 
     def test_feature_attribution_returns_list(self, tok):
-        cfg = TransformerConfig(vocab_size=tok.vocab_size, hidden_dim=32,
-                                  n_layers=2, n_heads=4, n_kv_heads=2)
+        cfg = TransformerConfig(
+            vocab_size=tok.vocab_size,
+            hidden_dim=32,
+            n_layers=2,
+            n_heads=4,
+            n_kv_heads=2,
+        )
         m = HookedTransformer(cfg)
         sae = TopKSAE(SAEConfig(d_model=32, n_features=64, k=4))
         x = torch.tensor([[1, 2, 3, 4, 5]])
-        attrs = feature_attribution(m, sae, "block_1.resid_post", x,
-                                      target_token=0, top_n=3)
+        attrs = feature_attribution(
+            m, sae, "block_1.resid_post", x, target_token=0, top_n=3
+        )
         assert isinstance(attrs, list)
         assert len(attrs) <= 3
 
@@ -215,11 +264,20 @@ class TestMemory:
     def test_episodic_retrieval(self):
         em = EpisodicMemory(dim=8)
         for i in range(5):
-            key = torch.zeros(8); key[i] = 1.0
-            em.store(Episode(key=key, input_text=f"q{i}", output_text=f"a{i}",
-                              feature_signature=None, outcome={}))
+            key = torch.zeros(8)
+            key[i] = 1.0
+            em.store(
+                Episode(
+                    key=key,
+                    input_text=f"q{i}",
+                    output_text=f"a{i}",
+                    feature_signature=None,
+                    outcome={},
+                )
+            )
         # Query that points strongly at episode 2.
-        q = torch.zeros(8); q[2] = 1.0
+        q = torch.zeros(8)
+        q[2] = 1.0
         results = em.retrieve(q, k=1)
         assert len(results) == 1
         assert results[0][0].input_text == "q2"
@@ -232,15 +290,28 @@ class TestMemory:
         for _ in range(10):
             sig = torch.zeros(16)
             sig[:3] = torch.randn(3).abs()
-            em.store(Episode(key=torch.randn(8), input_text="x",
-                              output_text="y", feature_signature=sig, outcome={}))
+            em.store(
+                Episode(
+                    key=torch.randn(8),
+                    input_text="x",
+                    output_text="y",
+                    feature_signature=sig,
+                    outcome={},
+                )
+            )
         for _ in range(10):
             sig = torch.zeros(16)
             sig[8:11] = torch.randn(3).abs()
-            em.store(Episode(key=torch.randn(8), input_text="x",
-                              output_text="y", feature_signature=sig, outcome={}))
-        n_added = consolidate(em, sm, n_clusters=2, n_iters=20,
-                                min_cluster_size=3)
+            em.store(
+                Episode(
+                    key=torch.randn(8),
+                    input_text="x",
+                    output_text="y",
+                    feature_signature=sig,
+                    outcome={},
+                )
+            )
+        n_added = consolidate(em, sm, n_clusters=2, n_iters=20, min_cluster_size=3)
         assert n_added >= 1
 
 
@@ -267,7 +338,8 @@ class TestChannel:
 
     def test_trust_updates(self):
         ch = CommunicationChannel()
-        ch.register("a"); ch.register("b")
+        ch.register("a")
+        ch.register("b")
         assert ch.trust("a", "b") == 1.0
         ch.update_trust("a", "b", -0.3)
         assert abs(ch.trust("a", "b") - 0.7) < 1e-6
@@ -337,13 +409,24 @@ class TestSociety:
         c = Critic(_agent_cfg("c", tok), tok, ch)
         v = Verifier(_agent_cfg("v", tok), tok, ch)
         s = Synthesizer(_agent_cfg("s", tok), tok, ch)
-        m = Metacognitor(_agent_cfg("m", tok), tok, ch,
-                          modeled_agents=["p", "c", "v", "s"])
-        soc = Society(p, c, v, s, m, ch,
-                       DebateConfig(max_rounds=1, proposals_per_round=1,
-                                     enable_introspection=False))
+        m = Metacognitor(
+            _agent_cfg("m", tok), tok, ch, modeled_agents=["p", "c", "v", "s"]
+        )
+        soc = Society(
+            p,
+            c,
+            v,
+            s,
+            m,
+            ch,
+            DebateConfig(
+                max_rounds=1, proposals_per_round=1, enable_introspection=False
+            ),
+        )
+
         def verify(q, prop):
             return {"verdict": "ok", "reason": "test"}
+
         res = soc.debate("test question", verification_fn=verify)
         assert len(res.rounds) == 1
         assert res.succeeded
@@ -373,15 +456,16 @@ class TestTasks:
 # ─────────────────────────────────────────────────────────────────────
 class TestTrainingPipeline:
     def test_bc_reduces_loss(self, tok):
-        torch.manual_seed(0); random.seed(0)
+        torch.manual_seed(0)
+        random.seed(0)
         ch = CommunicationChannel()
         p = Proposer(_agent_cfg("p", tok), tok, ch)
         c = Critic(_agent_cfg("c", tok), tok, ch)
         s = Synthesizer(_agent_cfg("s", tok), tok, ch)
-        m = Metacognitor(_agent_cfg("m", tok), tok, ch,
-                          modeled_agents=["p", "c", "s"])
-        samples = sample_dataset(n=8, seed=0, family="ordering",
-                                  difficulty_range=(1, 1))
+        m = Metacognitor(_agent_cfg("m", tok), tok, ch, modeled_agents=["p", "c", "s"])
+        samples = sample_dataset(
+            n=8, seed=0, family="ordering", difficulty_range=(1, 1)
+        )
         cfg = TrainConfig(bc_epochs=2, log_every=10)
         losses = warm_start(p, c, s, m, samples, cfg)
         assert losses[-1] <= losses[0] + 1e-3

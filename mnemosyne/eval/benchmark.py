@@ -18,6 +18,7 @@ Reports metrics across the architecture's many capabilities:
 
 Eval is purely diagnostic — it never modifies model weights.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -40,8 +41,9 @@ class EvalReport:
     sae_recon_mse: float = 0.0
     n_counterfactuals_found: int = 0
     n_counterfactual_attempts: int = 0
-    per_family: dict[str, dict] = field(default_factory=lambda: defaultdict(
-        lambda: {"n": 0, "correct": 0}))
+    per_family: dict[str, dict] = field(
+        default_factory=lambda: defaultdict(lambda: {"n": 0, "correct": 0})
+    )
     episodes_stored: int = 0
     concepts_in_semantic: int = 0
 
@@ -87,8 +89,9 @@ class EvalReport:
         return "\n".join(lines)
 
 
-def evaluate_society(society: Society, samples: list[Sample],
-                       cf_sample_rate: float = 0.5) -> EvalReport:
+def evaluate_society(
+    society: Society, samples: list[Sample], cf_sample_rate: float = 0.5
+) -> EvalReport:
     """Run the society over each sample and aggregate diagnostics.
 
     ``cf_sample_rate`` controls how often we run the (expensive)
@@ -122,7 +125,8 @@ def evaluate_society(society: Society, samples: list[Sample],
             ids = society.proposer.encode(s.question)
             site = society.proposer.cfg.introspection_sites[0]
             _, captured = society.proposer.transformer.run_with_capture(
-                ids, sites=[site])
+                ids, sites=[site]
+            )
             a = captured[site].view(-1, captured[site].shape[-1])
             sae = society.proposer.saes[society.proposer._safe_key(site)]
             recon, _ = sae(a)
@@ -135,7 +139,9 @@ def evaluate_society(society: Society, samples: list[Sample],
                 cf = find_counterfactual(
                     society.proposer.transformer,
                     society.proposer.saes[society.proposer._safe_key(site)],
-                    site, ids, max_features=3,
+                    site,
+                    ids,
+                    max_features=3,
                 )
             report.n_counterfactual_attempts += 1
             if cf is not None:

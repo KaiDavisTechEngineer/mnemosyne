@@ -25,6 +25,7 @@ Three core capabilities:
 Together these let the agent answer the canonical introspection
 question: *"Which features of mine caused me to say what I said?"*
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,7 +35,9 @@ import torch
 import torch.nn.functional as F
 
 from mnemosyne.arch.transformer import (
-    HookContext, HookedTransformer, hooks,
+    HookContext,
+    HookedTransformer,
+    hooks,
 )
 from mnemosyne.interp.sae import TopKSAE
 
@@ -129,10 +132,10 @@ def attribution_patch(
             act = act.detach().requires_grad_(True)
             corr_acts[name] = act
             return act
+
         return hook
 
-    ctx = HookContext(replace={s: grad_hook_factory(s) for s in sites},
-                       capture=[])
+    ctx = HookContext(replace={s: grad_hook_factory(s) for s in sites}, capture=[])
     model.zero_grad(set_to_none=True)
     with hooks(ctx):
         _, logits = model(corrupted_ids)
@@ -160,16 +163,19 @@ def attribution_patch(
 @dataclass
 class FeatureAttribution:
     """Per-feature contribution to an output."""
+
     site: str
     feature_idx: int
     delta_logit: float
     activation: float
 
     def __repr__(self) -> str:
-        return (f"FeatureAttribution(site={self.site!r}, "
-                f"feature={self.feature_idx}, "
-                f"Δlogit={self.delta_logit:+.4f}, "
-                f"act={self.activation:.4f})")
+        return (
+            f"FeatureAttribution(site={self.site!r}, "
+            f"feature={self.feature_idx}, "
+            f"Δlogit={self.delta_logit:+.4f}, "
+            f"act={self.activation:.4f})"
+        )
 
 
 def feature_attribution(
@@ -197,10 +203,10 @@ def feature_attribution(
     baseline_logit = float(base_logits[0, -1, target_token].item())
 
     # Encode through SAE.
-    z = sae.encode(base_act)   # (B, T, n_features)
+    z = sae.encode(base_act)  # (B, T, n_features)
     # Take the last-token feature activations (introspection focuses on the
     # token that mattered for the decision).
-    z_last = z[0, -1]   # (n_features,)
+    z_last = z[0, -1]  # (n_features,)
     active = (z_last > 0).nonzero(as_tuple=False).squeeze(-1).tolist()
 
     attributions: list[FeatureAttribution] = []
@@ -211,10 +217,14 @@ def feature_attribution(
         a_abl = sae.decode(z_abl)
         logits_abl, _ = model.run_with_intervention(input_ids, {site: a_abl})
         delta = baseline_logit - float(logits_abl[0, -1, target_token].item())
-        attributions.append(FeatureAttribution(
-            site=site, feature_idx=f, delta_logit=delta,
-            activation=float(z_last[f].item()),
-        ))
+        attributions.append(
+            FeatureAttribution(
+                site=site,
+                feature_idx=f,
+                delta_logit=delta,
+                activation=float(z_last[f].item()),
+            )
+        )
     # Sort by absolute Δlogit, descending.
     attributions.sort(key=lambda a: abs(a.delta_logit), reverse=True)
     return attributions[:top_n]
@@ -226,6 +236,7 @@ def feature_attribution(
 @dataclass
 class Counterfactual:
     """A minimal feature ablation that changes the agent's answer."""
+
     site: str
     ablated_features: list[int]
     original_token: int
@@ -233,10 +244,12 @@ class Counterfactual:
     confidence_drop: float
 
     def __repr__(self) -> str:
-        return (f"Counterfactual(site={self.site!r}, "
-                f"ablated={self.ablated_features}, "
-                f"{self.original_token} → {self.counterfactual_token}, "
-                f"confidence_drop={self.confidence_drop:+.4f})")
+        return (
+            f"Counterfactual(site={self.site!r}, "
+            f"ablated={self.ablated_features}, "
+            f"{self.original_token} → {self.counterfactual_token}, "
+            f"confidence_drop={self.confidence_drop:+.4f})"
+        )
 
 
 def find_counterfactual(
@@ -264,8 +277,9 @@ def find_counterfactual(
     orig_conf = float(orig_probs[orig_token].item())
 
     # Rank features by attribution magnitude.
-    attrs = feature_attribution(model, sae, site, input_ids, orig_token,
-                                  top_n=max(16, max_features * 4))
+    attrs = feature_attribution(
+        model, sae, site, input_ids, orig_token, top_n=max(16, max_features * 4)
+    )
 
     z_base = sae.encode(base_act).clone()
     ablated: list[int] = []
@@ -299,9 +313,13 @@ def find_counterfactual(
 # ─────────────────────────────────────────────────────────────────────
 # Convenience wrappers used by the introspection layer
 # ─────────────────────────────────────────────────────────────────────
-def ablate_feature(model: HookedTransformer, sae: TopKSAE, site: str,
-                    input_ids: torch.Tensor, feature_idx: int
-                    ) -> torch.Tensor:
+def ablate_feature(
+    model: HookedTransformer,
+    sae: TopKSAE,
+    site: str,
+    input_ids: torch.Tensor,
+    feature_idx: int,
+) -> torch.Tensor:
     """Run a forward pass with feature ``feature_idx`` clamped to zero at
     the site. Returns the resulting logits."""
     _, captured = model.run_with_capture(input_ids, sites=[site])
@@ -318,5 +336,10 @@ def causal_distance(logits_a: torch.Tensor, logits_b: torch.Tensor) -> float:
     summary of how different two outputs are."""
     p = F.softmax(logits_a[0, -1], dim=-1)
     q = F.softmax(logits_b[0, -1], dim=-1)
-    return float(0.5 * (F.kl_div(q.log(), p, reduction="sum")
-                          + F.kl_div(p.log(), q, reduction="sum")).item())
+    return float(
+        0.5
+        * (
+            F.kl_div(q.log(), p, reduction="sum")
+            + F.kl_div(p.log(), q, reduction="sum")
+        ).item()
+    )

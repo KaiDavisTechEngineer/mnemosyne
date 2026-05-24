@@ -37,6 +37,7 @@ Protocol design choices:
   ``trust`` scalar per-sender that scales incoming messages.
 * All messages carry a ``round`` counter so debates can be replayed.
 """
+
 from __future__ import annotations
 
 import time
@@ -50,8 +51,9 @@ import torch.nn as nn
 @dataclass
 class Message:
     """One message in the conversation."""
+
     sender: str
-    recipient: str        # "all" for broadcasts
+    recipient: str  # "all" for broadcasts
     round_idx: int
     token_text: str
     latent: Optional[torch.Tensor] = None
@@ -67,6 +69,7 @@ class BridgeHead(nn.Module):
     don't destroy information). For mismatched dims, the bridge does
     a learned dimensionality conversion.
     """
+
     def __init__(self, send_dim: int, recv_dim: int) -> None:
         super().__init__()
         self.proj = nn.Linear(send_dim, recv_dim, bias=False)
@@ -74,7 +77,7 @@ class BridgeHead(nn.Module):
         if send_dim == recv_dim:
             nn.init.eye_(self.proj.weight)
         else:
-            nn.init.normal_(self.proj.weight, std=1.0 / send_dim ** 0.5)
+            nn.init.normal_(self.proj.weight, std=1.0 / send_dim**0.5)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
@@ -100,14 +103,22 @@ class CommunicationChannel:
         self._registered.add(agent_id)
         self._inbox.setdefault(agent_id, [])
 
-    def send(self, sender: str, recipient: str, token_text: str,
-              latent: Optional[torch.Tensor] = None,
-              metadata: Optional[dict] = None) -> Message:
+    def send(
+        self,
+        sender: str,
+        recipient: str,
+        token_text: str,
+        latent: Optional[torch.Tensor] = None,
+        metadata: Optional[dict] = None,
+    ) -> Message:
         if sender not in self._registered:
             raise ValueError(f"agent {sender!r} not registered with the channel")
         msg = Message(
-            sender=sender, recipient=recipient, round_idx=self._round,
-            token_text=token_text, latent=latent,
+            sender=sender,
+            recipient=recipient,
+            round_idx=self._round,
+            token_text=token_text,
+            latent=latent,
             metadata=metadata or {},
         )
         self.transcript.append(msg)

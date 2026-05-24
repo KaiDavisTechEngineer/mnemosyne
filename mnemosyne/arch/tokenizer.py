@@ -23,6 +23,7 @@ Reserved special tokens
   *naming its own internal features*, which is the linguistic
   ingredient of causal self-modeling.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,15 +32,34 @@ from dataclasses import dataclass
 # Reserved special tokens, in stable order. Indices 0..N-1 are these
 # specials; the rest of the vocab is byte values shifted by len(SPECIALS).
 SPECIALS: tuple[str, ...] = (
-    "<pad>", "<bos>", "<eos>",
-    "<role:proposer>", "<role:critic>", "<role:verifier>",
-    "<role:synthesizer>", "<role:metacognitor>",
-    "<msg>", "</msg>",
-    "<intervene>", "<introspect>",
-    "<ref:0>", "<ref:1>", "<ref:2>", "<ref:3>",
-    "<ref:4>", "<ref:5>", "<ref:6>", "<ref:7>",
-    "<ref:8>", "<ref:9>", "<ref:10>", "<ref:11>",
-    "<ref:12>", "<ref:13>", "<ref:14>", "<ref:15>",
+    "<pad>",
+    "<bos>",
+    "<eos>",
+    "<role:proposer>",
+    "<role:critic>",
+    "<role:verifier>",
+    "<role:synthesizer>",
+    "<role:metacognitor>",
+    "<msg>",
+    "</msg>",
+    "<intervene>",
+    "<introspect>",
+    "<ref:0>",
+    "<ref:1>",
+    "<ref:2>",
+    "<ref:3>",
+    "<ref:4>",
+    "<ref:5>",
+    "<ref:6>",
+    "<ref:7>",
+    "<ref:8>",
+    "<ref:9>",
+    "<ref:10>",
+    "<ref:11>",
+    "<ref:12>",
+    "<ref:13>",
+    "<ref:14>",
+    "<ref:15>",
 )
 # Reserve indices for feature references too: <feature:0> .. <feature:255>
 # Will be appended after SPECIALS in the vocab.
@@ -50,6 +70,7 @@ N_FEATURES = 256
 @dataclass
 class Tokenizer:
     """Byte-level tokenizer with structured agent-protocol tokens."""
+
     specials: tuple[str, ...]
     feature_tokens: tuple[str, ...]
 
@@ -83,7 +104,7 @@ class Tokenizer:
                 # Try matching a special.
                 end = text.find(">", i)
                 if end != -1:
-                    candidate = text[i:end + 1]
+                    candidate = text[i : end + 1]
                     if candidate in all_special_ids:
                         out.append(all_special_ids[candidate])
                         i = end + 1

@@ -16,19 +16,37 @@ The same ``verify`` callable can be passed to the verifier agent as
 the ``verification_fn``, closing the loop: the same reward function
 that scores training trajectories grades the multi-agent debate.
 """
+
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
 from typing import Callable
 
-NAMES = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry",
-         "iris", "jack", "kate", "leo", "mia", "nick", "olivia", "pete"]
+NAMES = [
+    "alice",
+    "bob",
+    "carol",
+    "dave",
+    "eve",
+    "frank",
+    "grace",
+    "henry",
+    "iris",
+    "jack",
+    "kate",
+    "leo",
+    "mia",
+    "nick",
+    "olivia",
+    "pete",
+]
 
 
 @dataclass
 class Sample:
     """One training sample."""
+
     question: str
     gold_answer: str
     family: str
@@ -39,7 +57,9 @@ class Sample:
     metadata: dict = field(default_factory=dict)
 
 
-def _make_verifier(gold_answer: str, accepted_keywords: list[str]) -> Callable[[str, str], dict]:
+def _make_verifier(
+    gold_answer: str, accepted_keywords: list[str]
+) -> Callable[[str, str], dict]:
     """Return a verification function for a sample.
 
     Accepts as 'ok' any proposal whose lowercased text contains the
@@ -55,6 +75,7 @@ def _make_verifier(gold_answer: str, accepted_keywords: list[str]) -> Callable[[
         if any(kw in p for kw in kws if kw):
             return {"verdict": "ok", "reason": f"matched gold {gold_answer!r}"}
         return {"verdict": "fail", "reason": f"expected {gold_answer!r}"}
+
     return verify
 
 
@@ -72,7 +93,7 @@ def task_ordering(rng: random.Random, n: int = 4) -> Sample:
     # Emit adjacent comparisons in random order.
     parts = []
     for i in range(n - 1):
-        parts.append(f"{sorted_names[i+1]} is taller than {sorted_names[i]}")
+        parts.append(f"{sorted_names[i + 1]} is taller than {sorted_names[i]}")
     rng.shuffle(parts)
 
     tallest = sorted_names[-1]
@@ -86,8 +107,10 @@ def task_ordering(rng: random.Random, n: int = 4) -> Sample:
         gold = shortest
 
     return Sample(
-        question=question, gold_answer=gold,
-        family="ordering", difficulty=min(5, max(1, n - 2)),
+        question=question,
+        gold_answer=gold,
+        family="ordering",
+        difficulty=min(5, max(1, n - 2)),
         verify=_make_verifier(gold, [gold]),
         metadata={"names": names, "sorted": sorted_names},
     )
@@ -101,14 +124,16 @@ def task_boolean(rng: random.Random, n: int = 3) -> Sample:
     names = rng.sample(NAMES, min(n, len(NAMES)))
     parts = [f"{names[0]} is true"]
     for i in range(len(names) - 1):
-        parts.append(f"if {names[i]} is true then {names[i+1]} is true")
+        parts.append(f"if {names[i]} is true then {names[i + 1]} is true")
     rng.shuffle(parts[1:])
     target = names[-1]
     question = "; ".join(parts) + f". Is {target} true?"
     gold = "yes"
     return Sample(
-        question=question, gold_answer=gold,
-        family="boolean", difficulty=min(5, max(1, n - 1)),
+        question=question,
+        gold_answer=gold,
+        family="boolean",
+        difficulty=min(5, max(1, n - 1)),
         verify=_make_verifier(gold, ["yes", "true", target]),
         metadata={"chain": names},
     )
@@ -123,13 +148,15 @@ def task_comparison(rng: random.Random, n: int = 3) -> Sample:
     base = rng.randint(20, 50)
     parts = [f"{names[0]} is {base}"]
     for i in range(n - 1):
-        parts.append(f"{names[i+1]} is greater than {names[i]}")
+        parts.append(f"{names[i + 1]} is greater than {names[i]}")
     rng.shuffle(parts[1:])
     question = "; ".join(parts) + f". Is {names[-1]} greater than {base}?"
     gold = "yes"
     return Sample(
-        question=question, gold_answer=gold,
-        family="comparison", difficulty=min(5, max(1, n - 1)),
+        question=question,
+        gold_answer=gold,
+        family="comparison",
+        difficulty=min(5, max(1, n - 1)),
         verify=_make_verifier(gold, ["yes", "greater", names[-1]]),
         metadata={"base": base, "names": names},
     )
@@ -138,9 +165,7 @@ def task_comparison(rng: random.Random, n: int = 3) -> Sample:
 # ─────────────────────────────────────────────────────────────────────
 # Top-level mixed sampler
 # ─────────────────────────────────────────────────────────────────────
-def sample_task(rng: random.Random,
-                 family: str = "mix",
-                 difficulty: int = 2) -> Sample:
+def sample_task(rng: random.Random, family: str = "mix", difficulty: int = 2) -> Sample:
     """Sample one task. ``family`` is "ordering" | "boolean" | "comparison"
     | "mix"; ``difficulty`` controls the size."""
     if family == "mix":
@@ -155,8 +180,12 @@ def sample_task(rng: random.Random,
     raise ValueError(f"unknown family: {family}")
 
 
-def sample_dataset(n: int, seed: int = 0, family: str = "mix",
-                    difficulty_range: tuple[int, int] = (1, 3)) -> list[Sample]:
+def sample_dataset(
+    n: int,
+    seed: int = 0,
+    family: str = "mix",
+    difficulty_range: tuple[int, int] = (1, 3),
+) -> list[Sample]:
     """Generate a fixed dataset."""
     rng = random.Random(seed)
     out: list[Sample] = []

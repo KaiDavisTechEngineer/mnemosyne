@@ -48,13 +48,12 @@ subsequent analysis — sparse autoencoders, activation patching,
 attribution patching, causal scrubbing — composes cleanly without
 modifying model internals.
 """
+
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -83,6 +82,7 @@ class HookContext:
 
     After the forward pass, ``captured`` holds the recorded activations.
     """
+
     capture: list[str] = field(default_factory=list)
     replace: dict[str, torch.Tensor | HookFn] = field(default_factory=dict)
     captured: dict[str, torch.Tensor] = field(default_factory=dict)
@@ -144,6 +144,7 @@ class RMSNorm(nn.Module):
     effective. The single learnable scale parameter is initialized to
     one.
     """
+
     def __init__(self, dim: int, eps: float = 1e-6) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(dim))
@@ -154,38 +155,46 @@ class RMSNorm(nn.Module):
         return self.weight * (x / rms)
 
 
-def precompute_rope(head_dim: int, max_seq_len: int, base: float = 10000.0,
-                    device: torch.device | None = None,
-                    ) -> tuple[torch.Tensor, torch.Tensor]:
+def precompute_rope(
+    head_dim: int,
+    max_seq_len: int,
+    base: float = 10000.0,
+    device: torch.device | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Precompute (cos, sin) RoPE tables of shape (max_seq_len, head_dim/2)."""
     assert head_dim % 2 == 0
     half = head_dim // 2
-    freqs = 1.0 / (base ** (torch.arange(0, half, dtype=torch.float32, device=device) / half))
+    freqs = 1.0 / (
+        base ** (torch.arange(0, half, dtype=torch.float32, device=device) / half)
+    )
     positions = torch.arange(max_seq_len, dtype=torch.float32, device=device)
     angles = positions.unsqueeze(1) * freqs.unsqueeze(0)
     return angles.cos(), angles.sin()
 
 
-def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-               position_offset: int = 0) -> torch.Tensor:
+def apply_rope(
+    x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, position_offset: int = 0
+) -> torch.Tensor:
     """Half-rotation RoPE applied to (B, H, T, D)."""
     T = x.shape[-2]
-    cos_slice = cos[position_offset:position_offset + T].view(1, 1, T, -1)
-    sin_slice = sin[position_offset:position_offset + T].view(1, 1, T, -1)
+    cos_slice = cos[position_offset : position_offset + T].view(1, 1, T, -1)
+    sin_slice = sin[position_offset : position_offset + T].view(1, 1, T, -1)
     x1, x2 = x.chunk(2, dim=-1)
-    return torch.cat([x1 * cos_slice - x2 * sin_slice,
-                       x1 * sin_slice + x2 * cos_slice], dim=-1)
+    return torch.cat(
+        [x1 * cos_slice - x2 * sin_slice, x1 * sin_slice + x2 * cos_slice], dim=-1
+    )
 
 
 @dataclass
 class TransformerConfig:
     """Hyperparameters. The defaults are sized so that a 4-agent society
     fits comfortably in CPU memory on a MacBook."""
+
     vocab_size: int = 256
     hidden_dim: int = 128
     n_layers: int = 4
     n_heads: int = 4
-    n_kv_heads: int = 2          # grouped-query attention: 4 Q heads share 2 KV heads
+    n_kv_heads: int = 2  # grouped-query attention: 4 Q heads share 2 KV heads
     mlp_mult: float = 8 / 3
     max_seq_len: int = 1024
     rope_base: float = 10000.0
@@ -206,6 +215,7 @@ class GroupedQueryAttention(nn.Module):
     Cuts KV memory and bandwidth at inference time — the technique
     behind every fast modern open model.
     """
+
     def __init__(self, cfg: TransformerConfig, block_idx: int) -> None:
         super().__init__()
         self.cfg = cfg
@@ -225,8 +235,13 @@ class GroupedQueryAttention(nn.Module):
         self.v_proj = nn.Linear(cfg.hidden_dim, kv_proj_dim, bias=False)
         self.o_proj = nn.Linear(q_proj_dim, cfg.hidden_dim, bias=False)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                position_offset: int = 0) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        position_offset: int = 0,
+    ) -> torch.Tensor:
         B, T, _ = x.shape
         q = self.q_proj(x)
         k = self.k_proj(x)
@@ -256,6 +271,7 @@ class GroupedQueryAttention(nn.Module):
 
 class SwiGLU(nn.Module):
     """SwiGLU MLP (Shazeer 2020). Three projections: gate, up, down."""
+
     def __init__(self, cfg: TransformerConfig, block_idx: int) -> None:
         super().__init__()
         self.idx = block_idx
@@ -275,6 +291,7 @@ class SwiGLU(nn.Module):
 class Block(nn.Module):
     """One transformer block. Pre-norm structure with hook points at
     every residual stream position."""
+
     def __init__(self, cfg: TransformerConfig, idx: int) -> None:
         super().__init__()
         self.idx = idx
@@ -283,8 +300,13 @@ class Block(nn.Module):
         self.mlp_norm = RMSNorm(cfg.hidden_dim)
         self.mlp = SwiGLU(cfg, idx)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                position_offset: int = 0) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        position_offset: int = 0,
+    ) -> torch.Tensor:
         x = _hook(x, f"block_{self.idx}.resid_pre")
         n = self.attn_norm(x)
         n = _hook(n, f"block_{self.idx}.attn_norm")
@@ -305,6 +327,7 @@ class HookedTransformer(nn.Module):
     a fresh forward pass starts with the current top-of-stack
     ``HookContext`` (or the empty default).
     """
+
     def __init__(self, cfg: TransformerConfig) -> None:
         super().__init__()
         self.cfg = cfg
@@ -322,8 +345,9 @@ class HookedTransformer(nn.Module):
     def num_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward(self, token_ids: torch.Tensor,
-                position_offset: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, token_ids: torch.Tensor, position_offset: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.embed(token_ids)
         x = _hook(x, "embed")
         for block in self.blocks:
@@ -337,8 +361,9 @@ class HookedTransformer(nn.Module):
     # ──────────────────────────────────────────────────────────────────
     # Convenience: run with hook context and return captured activations
     # ──────────────────────────────────────────────────────────────────
-    def run_with_capture(self, token_ids: torch.Tensor,
-                          sites: list[str]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    def run_with_capture(
+        self, token_ids: torch.Tensor, sites: list[str]
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Forward pass while recording activations at the requested sites.
 
         Returns ``(logits, captured)`` where ``captured`` is a dict
@@ -349,9 +374,9 @@ class HookedTransformer(nn.Module):
             _, logits = self.forward(token_ids)
         return logits, ctx.captured
 
-    def run_with_intervention(self, token_ids: torch.Tensor,
-                                interventions: dict[str, torch.Tensor | HookFn]
-                                ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    def run_with_intervention(
+        self, token_ids: torch.Tensor, interventions: dict[str, torch.Tensor | HookFn]
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Forward pass with one or more activations clamped / replaced.
 
         ``interventions`` is a dict from site name to either a tensor
@@ -369,10 +394,19 @@ class HookedTransformer(nn.Module):
         for iterating over all activations during analysis."""
         names = ["embed"]
         for i in range(self.cfg.n_layers):
-            for suffix in ("resid_pre", "attn_norm",
-                           "attn_q", "attn_k", "attn_v", "attn_out",
-                           "resid_mid", "mlp_norm", "mlp_pre", "mlp_out",
-                           "resid_post"):
+            for suffix in (
+                "resid_pre",
+                "attn_norm",
+                "attn_q",
+                "attn_k",
+                "attn_v",
+                "attn_out",
+                "resid_mid",
+                "mlp_norm",
+                "mlp_pre",
+                "mlp_out",
+                "resid_post",
+            ):
                 names.append(f"block_{i}.{suffix}")
         names += ["final_norm", "logits"]
         return names

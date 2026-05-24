@@ -7,6 +7,7 @@ Subcommands::
     mnemosyne debate       # run one debate on a hand-written question
     mnemosyne introspect   # ask a trained proposer 'why did you say that?'
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,11 @@ import torch
 
 from mnemosyne.agents.base import AgentConfig
 from mnemosyne.agents.specialists import (
-    Critic, Metacognitor, Proposer, Synthesizer, Verifier,
+    Critic,
+    Metacognitor,
+    Proposer,
+    Synthesizer,
+    Verifier,
 )
 from mnemosyne.arch.tokenizer import Tokenizer
 from mnemosyne.arch.transformer import TransformerConfig
@@ -30,17 +35,25 @@ from mnemosyne.training.tasks import sample_dataset
 from mnemosyne.training.trainer import TrainConfig, train_all
 
 
-def _build_society(tok: Tokenizer, hidden_dim: int = 48,
-                     n_layers: int = 2, n_features: int = 64, k: int = 4
-                     ) -> Society:
+def _build_society(
+    tok: Tokenizer,
+    hidden_dim: int = 48,
+    n_layers: int = 2,
+    n_features: int = 64,
+    k: int = 4,
+) -> Society:
     channel = CommunicationChannel()
 
     def cfg(name: str) -> AgentConfig:
         return AgentConfig(
-            name=name, role=name,
+            name=name,
+            role=name,
             transformer_cfg=TransformerConfig(
-                vocab_size=tok.vocab_size, hidden_dim=hidden_dim,
-                n_layers=n_layers, n_heads=4, n_kv_heads=2,
+                vocab_size=tok.vocab_size,
+                hidden_dim=hidden_dim,
+                n_layers=n_layers,
+                n_heads=4,
+                n_kv_heads=2,
                 max_seq_len=1024,
             ),
             sae_cfg=SAEConfig(d_model=hidden_dim, n_features=n_features, k=k),
@@ -52,13 +65,21 @@ def _build_society(tok: Tokenizer, hidden_dim: int = 48,
     verifier = Verifier(cfg("verifier"), tok, channel)
     synth = Synthesizer(cfg("synth"), tok, channel)
     meta = Metacognitor(
-        cfg("meta"), tok, channel,
+        cfg("meta"),
+        tok,
+        channel,
         modeled_agents=["proposer", "critic", "verifier", "synth"],
     )
     return Society(
-        proposer, critic, verifier, synth, meta, channel,
-        cfg=DebateConfig(max_rounds=2, proposals_per_round=1,
-                          enable_introspection=False),
+        proposer,
+        critic,
+        verifier,
+        synth,
+        meta,
+        channel,
+        cfg=DebateConfig(
+            max_rounds=2, proposals_per_round=1, enable_introspection=False
+        ),
     )
 
 
@@ -87,25 +108,37 @@ def cmd_train(args: argparse.Namespace) -> int:
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     tok = Tokenizer.build()
-    society = _build_society(tok, hidden_dim=args.hidden_dim,
-                                n_layers=args.n_layers)
-    n_params = sum(sum(p.numel() for p in a.parameters())
-                    for a in (society.proposer, society.critic, society.verifier,
-                              society.synthesizer, society.metacognitor))
+    society = _build_society(tok, hidden_dim=args.hidden_dim, n_layers=args.n_layers)
+    n_params = sum(
+        sum(p.numel() for p in a.parameters())
+        for a in (
+            society.proposer,
+            society.critic,
+            society.verifier,
+            society.synthesizer,
+            society.metacognitor,
+        )
+    )
     print(f"society params: {n_params:,}")
-    train = sample_dataset(n=args.n_samples, seed=args.seed,
-                            difficulty_range=(1, args.max_difficulty))
+    train = sample_dataset(
+        n=args.n_samples, seed=args.seed, difficulty_range=(1, args.max_difficulty)
+    )
     config = TrainConfig(
-        bc_epochs=args.bc_epochs, sae_steps=args.sae_steps,
-        rl_episodes=args.rl_episodes, log_every=args.log_every,
+        bc_epochs=args.bc_epochs,
+        sae_steps=args.sae_steps,
+        rl_episodes=args.rl_episodes,
+        log_every=args.log_every,
     )
     history = train_all(society, train, config)
     if args.out:
         _save_society(society, Path(args.out))
         print(f"\nsaved society to {args.out}")
     if args.eval_after:
-        eval_set = sample_dataset(n=args.eval_n, seed=args.seed + 9999,
-                                    difficulty_range=(1, args.max_difficulty))
+        eval_set = sample_dataset(
+            n=args.eval_n,
+            seed=args.seed + 9999,
+            difficulty_range=(1, args.max_difficulty),
+        )
         print()
         print(evaluate_society(society, eval_set).pretty())
     return 0
@@ -113,19 +146,18 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     tok = Tokenizer.build()
-    society = _build_society(tok, hidden_dim=args.hidden_dim,
-                                n_layers=args.n_layers)
+    society = _build_society(tok, hidden_dim=args.hidden_dim, n_layers=args.n_layers)
     _load_society(society, Path(args.model))
-    eval_set = sample_dataset(n=args.n, seed=args.seed,
-                                difficulty_range=(1, args.max_difficulty))
+    eval_set = sample_dataset(
+        n=args.n, seed=args.seed, difficulty_range=(1, args.max_difficulty)
+    )
     print(evaluate_society(society, eval_set).pretty())
     return 0
 
 
 def cmd_debate(args: argparse.Namespace) -> int:
     tok = Tokenizer.build()
-    society = _build_society(tok, hidden_dim=args.hidden_dim,
-                                n_layers=args.n_layers)
+    society = _build_society(tok, hidden_dim=args.hidden_dim, n_layers=args.n_layers)
     if args.model:
         _load_society(society, Path(args.model))
 
@@ -141,14 +173,14 @@ def cmd_debate(args: argparse.Namespace) -> int:
 
 def cmd_introspect(args: argparse.Namespace) -> int:
     tok = Tokenizer.build()
-    society = _build_society(tok, hidden_dim=args.hidden_dim,
-                                n_layers=args.n_layers)
+    society = _build_society(tok, hidden_dim=args.hidden_dim, n_layers=args.n_layers)
     if args.model:
         _load_society(society, Path(args.model))
 
     ids = society.proposer.encode(args.text)
-    report = society.proposer.introspect(ids, compute_counterfactual=True,
-                                          top_n=args.top_n)
+    report = society.proposer.introspect(
+        ids, compute_counterfactual=True, top_n=args.top_n
+    )
     print(report.summary)
     return 0
 
@@ -189,19 +221,26 @@ def main(argv: list[str] | None = None) -> int:
     common(d)
     d.add_argument("--model", type=str, default=None)
     d.add_argument("--question", type=str, required=True)
-    d.add_argument("--expected", type=str, default=None,
-                    help="optional expected answer to ground the verifier")
+    d.add_argument(
+        "--expected",
+        type=str,
+        default=None,
+        help="optional expected answer to ground the verifier",
+    )
 
-    i = sub.add_parser("introspect",
-                         help="show why the proposer said what it said")
+    i = sub.add_parser("introspect", help="show why the proposer said what it said")
     common(i)
     i.add_argument("--model", type=str, default=None)
     i.add_argument("--text", type=str, required=True)
     i.add_argument("--top-n", type=int, default=6)
 
     args = ap.parse_args(argv)
-    return {"train": cmd_train, "eval": cmd_eval,
-            "debate": cmd_debate, "introspect": cmd_introspect}[args.cmd](args)
+    return {
+        "train": cmd_train,
+        "eval": cmd_eval,
+        "debate": cmd_debate,
+        "introspect": cmd_introspect,
+    }[args.cmd](args)
 
 
 if __name__ == "__main__":  # pragma: no cover

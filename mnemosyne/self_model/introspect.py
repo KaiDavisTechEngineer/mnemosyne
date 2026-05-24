@@ -29,6 +29,7 @@ Why this matters
    ones the agent has not yet "internalized." This biases the
    consolidation routine toward growing the agent's known repertoire.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -65,8 +66,7 @@ class SelfModel(nn.Module):
         """Predict next-token logits from hidden state (B, T, D) → (B, T, V)."""
         return self.head(F.silu(self.proj(hidden)))
 
-    def surprise(self, hidden: torch.Tensor, true_logits: torch.Tensor
-                  ) -> torch.Tensor:
+    def surprise(self, hidden: torch.Tensor, true_logits: torch.Tensor) -> torch.Tensor:
         """Per-position symmetric KL between self-model and true LM head.
 
         Returns a tensor of shape ``(B, T)`` with one surprise scalar
@@ -80,8 +80,9 @@ class SelfModel(nn.Module):
         kl_bwd = (my_p * (my_logp - true_logp)).sum(dim=-1)
         return 0.5 * (kl_fwd + kl_bwd)
 
-    def calibration_loss(self, hidden: torch.Tensor, true_logits: torch.Tensor
-                          ) -> torch.Tensor:
+    def calibration_loss(
+        self, hidden: torch.Tensor, true_logits: torch.Tensor
+    ) -> torch.Tensor:
         """Training loss: KL(true || self-model) averaged over positions.
 
         This is the loss we'd minimize during a brief 'self-calibration'
@@ -92,14 +93,15 @@ class SelfModel(nn.Module):
         return -(true_p * my_logp).sum(dim=-1).mean()
 
 
-def attach_self_model(agent_module: nn.Module,
-                       hidden_dim: int,
-                       vocab_size: int) -> SelfModel:
+def attach_self_model(
+    agent_module: nn.Module, hidden_dim: int, vocab_size: int
+) -> SelfModel:
     """Attach a SelfModel as a submodule of ``agent_module``.
 
     Convenience helper used during agent construction or post-hoc when
     upgrading older agents."""
-    self_model = SelfModel(SelfModelConfig(hidden_dim=hidden_dim,
-                                            vocab_size=vocab_size))
+    self_model = SelfModel(
+        SelfModelConfig(hidden_dim=hidden_dim, vocab_size=vocab_size)
+    )
     agent_module.add_module("self_model", self_model)
     return self_model

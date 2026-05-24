@@ -46,6 +46,7 @@ Implementation notes
   reconstruction error in the current batch (Gao et al.'s
   "auxiliary reconstruction loss" trick).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -58,11 +59,12 @@ import torch.nn.functional as F
 @dataclass
 class SAEConfig:
     """Hyperparameters."""
-    d_model: int = 64            # input/output dimensionality (= activation dim)
-    n_features: int = 256        # dictionary size; should be 4-16× d_model
-    k: int = 8                   # number of active features per token (sparsity)
-    dead_threshold: int = 500    # batches without activation → "dead"
-    aux_k: int = 16              # K for the auxiliary loss path
+
+    d_model: int = 64  # input/output dimensionality (= activation dim)
+    n_features: int = 256  # dictionary size; should be 4-16× d_model
+    k: int = 8  # number of active features per token (sparsity)
+    dead_threshold: int = 500  # batches without activation → "dead"
+    aux_k: int = 16  # K for the auxiliary loss path
 
 
 class TopKSAE(nn.Module):
@@ -71,15 +73,18 @@ class TopKSAE(nn.Module):
     def __init__(self, cfg: SAEConfig) -> None:
         super().__init__()
         self.cfg = cfg
-        self.W_enc = nn.Parameter(torch.randn(cfg.d_model, cfg.n_features) *
-                                   (1.0 / cfg.d_model ** 0.5))
+        self.W_enc = nn.Parameter(
+            torch.randn(cfg.d_model, cfg.n_features) * (1.0 / cfg.d_model**0.5)
+        )
         self.b_enc = nn.Parameter(torch.zeros(cfg.n_features))
         # Initialize decoder as the transpose of encoder, a common SAE practice
         # that gives a warm start and avoids early instability.
         self.W_dec = nn.Parameter(self.W_enc.detach().T.clone())
         self.b_dec = nn.Parameter(torch.zeros(cfg.d_model))
         # Track activation counts for dead-feature detection.
-        self.register_buffer("activation_counts", torch.zeros(cfg.n_features, dtype=torch.long))
+        self.register_buffer(
+            "activation_counts", torch.zeros(cfg.n_features, dtype=torch.long)
+        )
         self.register_buffer("step_count", torch.zeros((), dtype=torch.long))
 
     # ──────────────────────────────────────────────────────────────────
@@ -146,7 +151,7 @@ class TopKSAE(nn.Module):
             z_aux = _topk_relu(scores, k=min(self.cfg.aux_k, int(dead.sum())))
             recon_aux = z_aux @ self.W_dec
             aux_loss = F.mse_loss(recon_aux, residual)
-            aux_coef = 1.0 / 32.0   # Gao et al.'s magnitude
+            aux_coef = 1.0 / 32.0  # Gao et al.'s magnitude
             total = recon_loss + aux_coef * aux_loss
         else:
             aux_loss = torch.zeros((), device=a.device)
@@ -168,8 +173,11 @@ class TopKSAE(nn.Module):
         ``dead_threshold`` batches.
         """
         if self.step_count < self.cfg.dead_threshold:
-            return torch.zeros(self.cfg.n_features, dtype=torch.bool,
-                                device=self.activation_counts.device)
+            return torch.zeros(
+                self.cfg.n_features,
+                dtype=torch.bool,
+                device=self.activation_counts.device,
+            )
         return self.activation_counts == 0
 
     @torch.no_grad()
@@ -184,8 +192,9 @@ class TopKSAE(nn.Module):
         self.W_dec.data = self.W_dec.data / norms
 
     @torch.no_grad()
-    def reset_dead_features(self, activations: torch.Tensor,
-                              count_per_step: int = 4) -> int:
+    def reset_dead_features(
+        self, activations: torch.Tensor, count_per_step: int = 4
+    ) -> int:
         """Resurrect dead features by initializing them to high-error inputs.
 
         Gao et al. 2024 §3.4 — for each dead feature, set its encoder
